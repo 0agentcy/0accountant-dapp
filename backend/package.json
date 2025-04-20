@@ -26,5 +26,8 @@
   },
   "overrides": {
     "@mysten/sui": "1.26.1"
+  },
+  "resolutions": {
+  "postcss": "^8.4.31"
   }
 }
