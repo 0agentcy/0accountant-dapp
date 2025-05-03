@@ -1,5 +1,5 @@
 import { SuiClient } from '@mysten/sui/client';
-import logger from '../../utils/logger';
+import logger from '../utils/logger';
 
 const SUPPORTED_RESERVE_COINS = [
   '0x2::sui::SUI',

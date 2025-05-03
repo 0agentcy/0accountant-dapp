@@ -1,5 +1,5 @@
 import { SuilendClient } from "@suilend/sdk";
-import logger from "../../utils/logger";
+import logger from "../utils/logger";
 
 export function logSuilendClientSummary(client: SuilendClient) {
   const market = client.lendingMarket;

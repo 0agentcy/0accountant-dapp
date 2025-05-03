@@ -15,19 +15,15 @@
     "typescript": "^5.8.3"
   },
   "dependencies": {
-    "@mysten/sui": "1.26.1",
+    "@mysten/bcs": "^1.2.1",
+    "@mysten/sui": "^1.28.1",
     "@suilend/frontend-sui": "^0.2.56",
     "@suilend/sdk": "^1.1.50",
     "aftermath-ts-sdk": "^1.2.66",
     "date-fns": "^4.1.0",
     "dotenv": "^16.5.0",
+    "graphql-request": "^7.1.2",
     "node-fetch": "^3.3.2",
     "winston": "^3.17.0"
-  },
-  "overrides": {
-    "@mysten/sui": "1.26.1"
-  },
-  "resolutions": {
-  "postcss": "^8.4.31"
   }
 }
