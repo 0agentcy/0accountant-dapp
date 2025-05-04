@@ -16,13 +16,11 @@ async function main() {
   const LENDING_MARKET_OBJ = process.env.LENDING_MARKET_OBJ!;
   const LENDING_MARKET_TYPE = process.env.LENDING_MARKET_TYPE!;
   const COIN_TYPE = process.env.COIN_TYPE?.trim()!;
-  const CLOCK_ID = process.env.CLOCK_ID!;
-  const SYSTEM_STATE_ID = process.env.SYSTEM_STATE_ID!;
   const isDryRun = process.env.DRY_RUN === 'true';
 
   logger.info(`🔐 Loaded environment config (Dry Run = ${isDryRun})`);
 
-  if (!PRIVATE_KEY || !LENDING_MARKET_OBJ || !LENDING_MARKET_TYPE || !SUI_PACKAGE_ID || !COIN_TYPE || !CLOCK_ID || !SYSTEM_STATE_ID) {
+  if (!PRIVATE_KEY || !LENDING_MARKET_OBJ || !LENDING_MARKET_TYPE || !SUI_PACKAGE_ID || !COIN_TYPE) {
     throw new Error("Missing required environment variables.");
   }
 
@@ -62,8 +60,6 @@ async function main() {
       PACKAGE_ID: SUI_PACKAGE_ID,
       LENDING_MARKET_OBJ,
       LENDING_MARKET_TYPE,
-      CLOCK_ID,
-      SYSTEM_STATE_ID,
     },
   };
   

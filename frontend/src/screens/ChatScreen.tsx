@@ -16,6 +16,7 @@ type ChatScreenProps = {
   onSend: () => void;
   currentStrategy: Strategy | null;
   onExecuteStrategy: (strategy: Strategy) => void;
+  onSimulateStrategy: (strategy: Strategy) => void;
 };
 
 export default function ChatScreen({
@@ -25,6 +26,7 @@ export default function ChatScreen({
   onSend,
   currentStrategy,
   onExecuteStrategy,
+  onSimulateStrategy,
 }: ChatScreenProps) {
   const account = useCurrentAccount();
 
@@ -66,12 +68,20 @@ export default function ChatScreen({
             ))}
             </div>
 
-            <button
-            className="mt-4 bg-lime-400 text-black font-bold px-4 py-2 rounded-md"
-            onClick={() => onExecuteStrategy(currentStrategy)}
-            >
-            Execute Strategy
-            </button>
+            <div className="mt-4 flex space-x-2">
+              <button
+                className="flex-1 bg-transparent border border-lime-400 text-lime-400 font-semibold px-4 py-2 rounded-md hover:bg-lime-400 hover:text-black transition"
+                onClick={() => onSimulateStrategy(currentStrategy)}
+              >
+                Simulate Strategy
+              </button>
+              <button
+                className="flex-1 bg-lime-400 text-black font-bold px-4 py-2 rounded-md hover:opacity-90 transition"
+                onClick={() => onExecuteStrategy(currentStrategy)}
+              >
+                Execute Strategy
+              </button>
+            </div>
         </div>
         )}
 

@@ -4,6 +4,7 @@ import { useCurrentAccount } from '@mysten/dapp-kit';
 import LandingScreen from './screens/LandingScreen';
 import LoginScreen from './screens/LoginScreen';
 import ChatScreen from './screens/ChatScreen';
+import { executeStrategy, TOKEN_DECIMALS } from './api/strategy';
 
 type ChatMessage = {
   sender: 'user' | 'ai';
@@ -12,6 +13,7 @@ type ChatMessage = {
 };
 
 function App() {
+  const [dryRunMode] = useState<boolean>(true);
   const [screen, setScreen] = useState<'landing' | 'login' | 'chat'>('landing');
   const account = useCurrentAccount();
 
@@ -155,31 +157,86 @@ function App() {
     }
   };
 
-  const handleExecuteStrategy = (strategy: Strategy) => {
-    console.log('🚀 Executing strategy:', strategy);
+  async function handleExecuteStrategyBase(strategy: Strategy, dryRun: boolean) {
+    // 1️⃣ show a “sending…” message
+    setMessages(prev => [
+      ...prev,
+      {
+        sender: 'ai',
+        text: `🕑 Sending your "${strategy.name}" strategy to the vault…`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      },
+    ]);
+    
+    // 2️⃣ compute integer amount in smallest units
+    const action = strategy.actions[0];
+    const decimals = TOKEN_DECIMALS[action.token] ?? 0;
+    const humanAmount = action.amount; // the user‐facing float
+    const intAmount = BigInt(
+      Math.round(humanAmount * 10 ** decimals)
+    );
+
+    // 3️⃣ call your backend
+    try {
+      const resp = await executeStrategy(
+        action.token,
+        intAmount,
+        dryRunMode
+      );
+    
+    // 4️⃣ build the result text
+    let resultText: string;
+    if (resp.status === 'error') {
+      resultText = `❌ ${dryRun ? 'Simulation' : 'Execution'} failed: ${resp.message}`;
+    } else if (resp.mode === 'live') {
+      resultText = `✅ On-chain! Tx digest: ${resp.digest}`;
+    } else {
+      // dryRun case
+      resultText =
+        `🛠 Dry-run OK: ${resp.dryRunStatus}` +
+        `\nCreated: ${resp.created.map(o => o.id).join(', ')}`;
+    }
   
-    const confirmationMessage: ChatMessage = {
-      sender: 'ai',
-      text: `Executing "${strategy.name}". Strategy details sent to vault. Stand by, Mr. Anderson...`,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    };
   
-    setMessages((prev) => [...prev, confirmationMessage]);
-  };
-  
+      // 3️⃣ show final status
+      const resultMessage: ChatMessage = {
+        sender: 'ai',
+        text: resultText,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+      setMessages(prev => [...prev, resultMessage]);
+    } catch (err: any) {
+
+      const backendMessage = err.response?.data?.message ?? err.message;
+
+      const errorMessage: ChatMessage = {
+        sender: 'ai',
+        text: `❌ Execution failed: ${backendMessage}`,
+        timestamp: new Date().toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    }
+  };  
+  const handleExecuteStrategy = (s: Strategy) => handleExecuteStrategyBase(s, false);
+  const handleSimulateStrategy = (s: Strategy) => handleExecuteStrategyBase(s, true);
+
   // Final render logic
   if (screen === 'landing') return <LandingScreen onLaunch={() => setScreen('login')} />;
   if (screen === 'login') return <LoginScreen onConnected={() => setScreen('chat')} />;
   if (screen === 'chat') {
     return (
-      <ChatScreen
-        input={input}
-        messages={messages}
-        onInputChange={setInput}
-        onSend={handleSend}
-        currentStrategy={currentStrategy}
-        onExecuteStrategy={handleExecuteStrategy}
-      />
+        <ChatScreen
+          input={input}
+          messages={messages}
+          onInputChange={setInput}
+          onSend={handleSend}
+          currentStrategy={currentStrategy}
+          onExecuteStrategy={handleExecuteStrategy}
+          onSimulateStrategy={handleSimulateStrategy}
+        />
     );
   }
 

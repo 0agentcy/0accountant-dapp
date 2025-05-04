@@ -1,0 +1,5 @@
+{
+    "coinType": "0x2::sui::SUI",
+    "amount": "1000000000",
+    "dryRun": true
+}

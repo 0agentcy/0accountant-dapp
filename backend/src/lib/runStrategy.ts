@@ -18,8 +18,6 @@ export type RunStrategyOptions = {
     PACKAGE_ID: string;
     LENDING_MARKET_OBJ: string;
     LENDING_MARKET_TYPE: string;
-    CLOCK_ID: string;
-    SYSTEM_STATE_ID: string;
   };
 };
 

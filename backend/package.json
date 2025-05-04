@@ -10,6 +10,9 @@
   "license": "ISC",
   "description": "",
   "devDependencies": {
+    "@types/body-parser": "^1.19.5",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.1",
     "@types/node": "^22.14.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.3"
@@ -20,8 +23,11 @@
     "@suilend/frontend-sui": "^0.2.56",
     "@suilend/sdk": "^1.1.50",
     "aftermath-ts-sdk": "^1.2.66",
+    "body-parser": "^2.2.0",
+    "cors": "^2.8.5",
     "date-fns": "^4.1.0",
     "dotenv": "^16.5.0",
+    "express": "^5.1.0",
     "graphql-request": "^7.1.2",
     "node-fetch": "^3.3.2",
     "winston": "^3.17.0"
