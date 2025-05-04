@@ -45,4 +45,12 @@ export const TOKEN_DECIMALS: Record<string, number> = {
     'SUI-USDC LP Token': 6,    // whatever your LP-token decimals are
     // …add more as you support them
   };
+
+// src/api/tokenMap.ts
+export const TOKEN_ALIASES: Record<string, string> = {
+  // common “natural” symbols → full coin type
+  SUI:     '0x2::sui::SUI',
+  USDC:    '0x2::sui::usd_coin::USDC',
+  // …add more as you onboard new tokens
+};  
   

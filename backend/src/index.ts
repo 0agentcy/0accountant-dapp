@@ -1,15 +1,23 @@
 import * as path from 'path';
 import * as dotenv from 'dotenv';
-dotenv.config({ path: path.resolve(__dirname, '../.env') });
+import minimist from 'minimist';
 
 import { decodeSuiPrivateKey } from '@mysten/sui/cryptography';
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
 import { getFullnodeUrl, SuiClient } from '@mysten/sui/client';
 import { runStrategy } from './lib/runStrategy';
 import logger from './utils/logger';
+import type { Action } from './lib/types';
+
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 // === ⚙️ Main Entry Function ===
 async function main() {
+  const argv = minimist(process.argv.slice(2), {
+    boolean: ['lend', 'withdraw', 'swap'],
+    alias: { l: 'lend', w: 'withdraw', s: 'swap' },
+  });
+  
   // === 🧩 Load Env Config ===
   const PRIVATE_KEY = process.env.PRIVATE_KEY!;
   const SUI_PACKAGE_ID = process.env.SUI_PACKAGE_ID!;
@@ -49,6 +57,40 @@ async function main() {
     • Market Object ID: ${LENDING_MARKET_OBJ}
   `);
 
+  // === Build actions based on flags ===
+  const actions: Action[] = [];
+  if (argv.lend) {
+    actions.push({
+      protocol: 'SuiLend',
+      type: 'lend',
+      token: COIN_TYPE,
+      amount: depositAmount,
+    });
+  }
+  if (argv.withdraw) {
+    actions.push({
+      protocol: 'SuiLend',
+      type: 'withdraw',
+      token: COIN_TYPE,
+      amount: depositAmount,
+    });
+  }
+  if (argv.swap) {
+    // example placeholder — adjust token/amount/params as needed
+    actions.push({
+      protocol: 'SomeSwapProtocol',
+      type: 'swap',
+      token: COIN_TYPE,
+      amount: depositAmount,
+    });
+  }
+
+  if (actions.length === 0) {
+    throw new Error(
+      'No action specified. Use --lend, --withdraw, and/or --swap.'
+    );
+  }
+
   const commonOpts = {
     client: suiClient,
     keypair,
@@ -61,6 +103,7 @@ async function main() {
       LENDING_MARKET_OBJ,
       LENDING_MARKET_TYPE,
     },
+    actions, 
   };
   
   if (isDryRun) {

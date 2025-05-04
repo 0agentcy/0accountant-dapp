@@ -2,6 +2,7 @@ import { useCurrentAccount } from '@mysten/dapp-kit';
 import MessageBubble from '../components/MessageBubble';
 import ChatHeader from '../components/ChatHeader';
 import ChatInput from '../components/ChatInput';
+import { TOKEN_ALIASES } from '../api/strategy';
 
 type ChatMessage = {
   sender: 'user' | 'ai';
@@ -35,55 +36,77 @@ export default function ChatScreen({
       <ChatHeader />
 
       <div className="flex-1 p-4 space-y-4 overflow-auto">
-        {messages.map((msg, i) => (
-          <MessageBubble
-            key={i}
-            text={msg.text}
-            sender={msg.sender}
-            timestamp={msg.timestamp}
-          />
-        ))}
+        {messages
+          .filter(
+            (msg) =>
+              !(msg.sender === 'ai' && msg.text.trim().startsWith('```'))
+          )
+          .map((msg, i) => (
+            <MessageBubble
+              key={i}
+              text={msg.text}
+              sender={msg.sender}
+              timestamp={msg.timestamp}
+            />
+          ))}
       </div>
 
       {currentStrategy && (
-        <div className="border border-lime-400 p-4 rounded-md bg-black mb-4">
-            <h2 className="text-xl font-bold text-lime-300 mb-2">{currentStrategy.name}</h2>
-            <p className="mb-2">{currentStrategy.description}</p>
-            <p className="mb-4">
-            <strong>Risk:</strong> <span className="capitalize">{currentStrategy.risk}</span>
-            </p>
+        <div className="border border-lime-400 p-4 rounded-md bg-black mb-4 text-left">
+          <h2 className="text-xl font-bold text-lime-300 mb-2">
+            {currentStrategy.name}
+          </h2>
+          <p className="mb-2">{currentStrategy.description}</p>
+          <p className="mb-4">
+            <strong>Risk:</strong>{' '}
+            <span className="capitalize">
+              {currentStrategy.risk}
+            </span>
+          </p>
 
-            <div className="space-y-2">
-            {currentStrategy.actions.map((action, index) => (
+          <div className="space-y-2">
+            {currentStrategy.actions.map((action, index) => {
+              // compute the full on-chain token ID
+              const coinType =
+                TOKEN_ALIASES[action.token.toUpperCase()] ?? action.token;
+
+              return (
                 <div
-                key={index}
-                className="border border-lime-600 p-2 rounded text-sm"
+                  key={index}
+                  className="border border-lime-600 p-2 rounded text-sm"
                 >
-                <strong>Action {index + 1}:</strong><br />
-                Protocol: {action.protocol} <br />
-                Type: {action.type} <br />
-                Token: {action.token} <br />
-                Amount: {action.amount}
+                  <strong>Action {index + 1}:</strong>
+                  <br />
+                  Protocol: {action.protocol}
+                  <br />
+                  Type: {action.type}
+                  <br />
+                  Token: {action.token}
+                  <br />
+                  Token ID: {coinType}
+                  <br />
+                  Amount: {action.amount}
                 </div>
-            ))}
-            </div>
+              );
+            })}
+          </div>
 
-            <div className="mt-4 flex space-x-2">
-              <button
-                className="flex-1 bg-transparent border border-lime-400 text-lime-400 font-semibold px-4 py-2 rounded-md hover:bg-lime-400 hover:text-black transition"
-                onClick={() => onSimulateStrategy(currentStrategy)}
-              >
-                Simulate Strategy
-              </button>
-              <button
-                className="flex-1 bg-lime-400 text-black font-bold px-4 py-2 rounded-md hover:opacity-90 transition"
-                onClick={() => onExecuteStrategy(currentStrategy)}
-              >
-                Execute Strategy
-              </button>
-            </div>
+          <div className="mt-4 flex space-x-2">
+            <button
+              className="flex-1 bg-transparent border border-lime-400 text-lime-400 font-semibold px-4 py-2 rounded-md hover:bg-lime-400 hover:text-black transition"
+              onClick={() => onSimulateStrategy(currentStrategy)}
+            >
+              Simulate Strategy
+            </button>
+            <button
+              className="flex-1 bg-lime-400 text-black font-bold px-4 py-2 rounded-md hover:opacity-90 transition"
+              onClick={() => onExecuteStrategy(currentStrategy)}
+            >
+              Execute Strategy
+            </button>
+          </div>
         </div>
-        )}
+      )}
 
       <ChatInput
         input={input}
@@ -93,4 +116,3 @@ export default function ChatScreen({
     </div>
   );
 }
-

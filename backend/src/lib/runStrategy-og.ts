@@ -1,13 +1,11 @@
 import { SuiClient, SuiTransactionBlockResponse, DevInspectResults, DryRunTransactionBlockResponse } from "@mysten/sui/client";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
-import { Transaction } from "@mysten/sui/transactions";
-
-import type { Action, EnvConfig } from "./types";
-import { depositAction } from "./actions/deposit";
-import { withdrawAction } from './actions/withdraw';
-
+import { Transaction, Inputs } from "@mysten/sui/transactions";
+import { SuilendClient } from "@suilend/sdk";
+import { fetchReserves } from "../utils/fetchReserves";
 import logger, { hexSnippet } from "../utils/logger";
 
+// === ⚙️ Types ===
 export type RunStrategyOptions = {
   client: SuiClient;
   keypair: Ed25519Keypair;
@@ -16,25 +14,33 @@ export type RunStrategyOptions = {
   gasBudgetAmount: bigint;
   isDryRun: boolean;
   safeMode?: boolean;
-  env: EnvConfig;
-  actions: Action[];
+  env: {
+    PACKAGE_ID: string;
+    LENDING_MARKET_OBJ: string;
+    LENDING_MARKET_TYPE: string;
+  };
 };
 
+// A custom return type for dry-run scenarios
 export type DryRunResult = {
   mode: "dryRun";
   inspect?: DevInspectResults;
   dryRun: DryRunTransactionBlockResponse;
-};
+};  
 
+// Overload for dry-run mode
 export async function runStrategy(
   opts: RunStrategyOptions & { isDryRun: true }
 ): Promise<DryRunResult>;
+// Overload for live mode
 export async function runStrategy(
   opts: RunStrategyOptions & { isDryRun: false }
 ): Promise<SuiTransactionBlockResponse | void>;
+// Implementation signature
 export async function runStrategy(
   opts: RunStrategyOptions
 ): Promise<SuiTransactionBlockResponse | DryRunResult | void> {
+
   const {
     client,
     keypair,
@@ -43,42 +49,103 @@ export async function runStrategy(
     gasBudgetAmount,
     isDryRun,
     safeMode = false,
-    env,
-    actions,
+    env: { PACKAGE_ID, LENDING_MARKET_OBJ, LENDING_MARKET_TYPE },
   } = opts;
 
+  logger.info(`🎴 Strategy mode: ${isDryRun ? 'Dry Run (simulated)' : 'Live Transaction'}`);
+
+  // === 🔐 Setup wallet and transaction ===
   const owner = keypair.getPublicKey().toSuiAddress();
 
-  // Fetch all coins once
   const allCoins = await client.getAllCoins({ owner });
+  const balancesByType: Record<string, bigint> = {};
+  for (const coin of allCoins.data) {
+  const amount = BigInt(coin.balance);
+  balancesByType[coin.coinType] = (balancesByType[coin.coinType] || 0n) + amount;
+  }
 
-  // Find deposit coin
-  const depositCoin = allCoins.data.find(
-    (c) => c.coinType === coinType && BigInt(c.balance) >= depositAmount
+  let balanceLog = '💰 Current Wallet Balances:\n';
+  for (const [type, balance] of Object.entries(balancesByType)) {
+  balanceLog += `    • ${type}: ${balance} (raw)\n`;
+  }
+  logger.info(balanceLog.trim());
+
+  // === 🏦 Initialize Suilend client ===
+  const suilendClient = await SuilendClient.initialize(
+      LENDING_MARKET_OBJ,
+      LENDING_MARKET_TYPE,
+      client,
+      PACKAGE_ID
   );
+  logger.info("🔄 Initialized Suilend Client");
+
+  // === 💰 Fetch user's coins and validate target coin ===
+  const coins = await client.getAllCoins({ owner });
+  const depositCoin = coins.data.find((c) => c.coinType === coinType && BigInt(c.balance) >= depositAmount);
   if (!depositCoin) throw new Error(`No coin of type ${coinType} with sufficient balance found.`);
 
-  // Find separate gas coin
-  const gasCoin = allCoins.data.find(
-    (c) =>
-      c.coinType === '0x2::sui::SUI' &&
-      c.coinObjectId !== depositCoin.coinObjectId &&
-      BigInt(c.balance) >= gasBudgetAmount
+  const gasCoin = coins.data.find((c) =>
+    c.coinType === '0x2::sui::SUI' &&
+    c.coinObjectId !== depositCoin.coinObjectId &&
+    BigInt(c.balance) >= gasBudgetAmount
   );
   if (!gasCoin) throw new Error(`No separate SUI coin available for gas.`);
 
-  // Full object fetch for deposit and gas coins
+  logger.debug(`🪙 Deposit Coin:
+  • Type:        ${coinType}
+  • Amount:      ${depositAmount}
+  • Object ID:   ${depositCoin.coinObjectId}
+  • Balance:     ${depositCoin.balance}
+  `);
+    
+  logger.debug(`⛽ Gas Coin:
+  • Type:        0x2::sui::SUI
+  • Amount:      ${gasBudgetAmount}
+  • Object ID:   ${gasCoin.coinObjectId}
+  • Balance:     ${gasCoin.balance}
+  `);
+
   const coinFull = await client.getObject({
     id: depositCoin.coinObjectId,
     options: { showContent: true, showType: true, showOwner: true },
   });
+
   const gasCoinFull = await client.getObject({
     id: gasCoin.coinObjectId,
     options: { showContent: true, showType: true },
   });
+    
+  // === 📊 Fetch Reserves and derive reserveIndex ===
+  const reserves = await fetchReserves(suilendClient.client);
+  const matchedIndex = reserves.findIndex((r) => r.coinType === coinType);
+  if (matchedIndex === -1) throw new Error(`Reserve not found for coin type: ${coinType}`);
+  const reserveIndex = BigInt(matchedIndex);
 
-  // Build transaction block
+  // === 🤑 Start transaction
   const tx = new Transaction();
+  logger.info(`🤑 Strategy initialized for ${coinType} with deposit of ${depositAmount.toString()}`);
+
+  // === 💱 Prepare coin input and split for deposit ===
+  const mainCoinRef = tx.object(Inputs.ObjectRef({
+      objectId: coinFull.data!.objectId,
+      version: coinFull.data!.version,
+      digest: coinFull.data!.digest,
+  }));
+
+  logger.debug(`🔍 depositAmount type: ${depositAmount} (type: ${typeof depositAmount})`);
+
+  const reserveIndexArg = tx.pure.u64(reserveIndex);
+
+  logger.info(`📊 Reserve: ${JSON.stringify(reserveIndexArg, null, 2)}`);
+
+  const systemStateArg    = tx.object.system();
+  const clockArg          = tx.object.clock();
+  const lendingMarketArg  = tx.object(LENDING_MARKET_OBJ);
+  logger.debug(`💹 Market: ${JSON.stringify(lendingMarketArg, null, 2)}`);
+  logger.debug(`⚙️ System: ${JSON.stringify(systemStateArg, null, 2)}`);
+  logger.debug(`🕰️ Clock: ${JSON.stringify(clockArg, null, 2)}`);
+
+  // == 🧱 Build transaction ===
   tx.setSender(owner);
   tx.setGasPayment([
     {
@@ -87,29 +154,49 @@ export async function runStrategy(
       digest: gasCoinFull.data!.digest,
     },
   ]);
+
   tx.setGasBudget(gasBudgetAmount);
 
-  // Dispatch actions dynamically
-  for (const action of actions) {
-    switch (action.type) {
-      case 'lend':
-        await depositAction(tx, action, {
-          client,
-          owner,
-          coinFull,
-          gasCoinFull,
-          env,
-        });
-        break;
-      case 'withdraw':
-        await withdrawAction(tx, action, { client, owner, coinFull, gasCoinFull, env });
-        break;
+  // === 1️⃣ Move Call: Create Obligation ===
 
-      // future action handlers: withdraw, swap, borrow, etc.
-      default:
-        throw new Error(`Unsupported action type: ${action.type}`);
-    }
-  }
+  const [obligationCapArg] = tx.moveCall({
+      target: `${PACKAGE_ID}::lending_market::create_obligation`,
+      typeArguments: [LENDING_MARKET_TYPE],
+      arguments: [lendingMarketArg],
+  });
+
+  // == Split coins ===
+  const encodedDepositAmount = tx.pure.u64(depositAmount);
+  const [coinArg] = tx.splitCoins(mainCoinRef, [encodedDepositAmount]);
+
+  logger.info(`🪙 Coin: ${JSON.stringify(coinArg, null, 2)}`);
+
+  // === 2️⃣ Move Call: Deposit Liquidity & Mint cTokens ===
+  const [cTokenCoin] = tx.moveCall({
+      target: `${PACKAGE_ID}::lending_market::deposit_liquidity_and_mint_ctokens`,
+      typeArguments: [LENDING_MARKET_TYPE, coinType],
+      arguments: [lendingMarketArg, reserveIndexArg, clockArg, coinArg],
+  });
+  
+  // === 3️⃣ Move Call: Deposit cTokens into Obligation ===
+  tx.moveCall({
+      target: `${PACKAGE_ID}::lending_market::deposit_ctokens_into_obligation`,
+      typeArguments: [LENDING_MARKET_TYPE, coinType],
+      arguments: [lendingMarketArg, reserveIndexArg, obligationCapArg, clockArg, cTokenCoin],
+  });
+
+  // === 4️⃣ Move Call: Rebalance Staker ===
+  tx.moveCall({
+    target: `${PACKAGE_ID}::lending_market::rebalance_staker`,
+    typeArguments: [LENDING_MARKET_TYPE],
+    arguments:    [lendingMarketArg, reserveIndexArg, systemStateArg],
+  });
+
+  // 5️⃣ Return the cap to the user
+  tx.transferObjects(
+    [obligationCapArg],
+    owner
+  );
 
   // === 🧪 Dry Run Mode (not sent onchain) ===
   if (isDryRun) {

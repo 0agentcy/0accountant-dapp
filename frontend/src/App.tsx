@@ -4,7 +4,8 @@ import { useCurrentAccount } from '@mysten/dapp-kit';
 import LandingScreen from './screens/LandingScreen';
 import LoginScreen from './screens/LoginScreen';
 import ChatScreen from './screens/ChatScreen';
-import { executeStrategy, TOKEN_DECIMALS } from './api/strategy';
+import { executeStrategy, TOKEN_DECIMALS, TOKEN_ALIASES } from './api/strategy';
+import prompts from './utils/prompts';
 
 type ChatMessage = {
   sender: 'user' | 'ai';
@@ -13,37 +14,24 @@ type ChatMessage = {
 };
 
 function App() {
-  const [dryRunMode] = useState<boolean>(true);
   const [screen, setScreen] = useState<'landing' | 'login' | 'chat'>('landing');
   const account = useCurrentAccount();
 
   const [input, setInput] = useState('');
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      sender: 'user',
-      text: 'Help me create a savings strategy for 3 months',
-      timestamp: '22:53',
-    },
-    {
-      sender: 'ai',
-      text:
-        'Mr. Anderson… You have a choice. Two, in fact.\n\n' +
-        '[Option 1] The Safe Construct\n' +
-        'Lend USDC. Grow steadily. Minimal risk.\nDeposit $1,000, add $500 later.\n\n' +
-        '[Option 2] The Looped Game\nUse SUI as collateral, borrow USDC, reinvest.\nHigher yield. Higher risk.',
-      timestamp: '22:53',
-    },
-    {
-      sender: 'user',
-      text: 'Let’s go for option 1',
-      timestamp: '22:54',
-    },
-    {
-      sender: 'ai',
-      text: 'Approve the transaction. I’ll handle the strategy from here.',
-      timestamp: '22:54',
-    },
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    const now = new Date().toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    return [
+      {
+        sender: 'ai',
+        // In the signature cadence of Agent Smith:
+        text: `Mr. Anderson… we find ourselves here once more. Now, shall we address the disorder in your finances before it spreads?`,
+        timestamp: now,
+      },
+    ];
+  });
 
   useEffect(() => {
     if (screen === 'login' && account) {
@@ -88,27 +76,7 @@ function App() {
           messages: [
             {
               role: 'system',
-              content: `
-                You are The 0Accountant, a financial assistant AI trained to create safe, efficient DeFi strategies on the SUI blockchain. 
-                When a user asks for a strategy, respond with ONLY a single JSON object, inside a code block. 
-                The structure must be:
-
-                {
-                  "name": "string",
-                  "description": "string",
-                  "risk": "low | medium | high",
-                  "actions": [
-                    {
-                      "protocol": "string",
-                      "type": "lend | swap | loop",
-                      "token": "string",
-                      "amount": number
-                    }
-                  ]
-                }
-
-                Do not include any explanation or additional text outside the code block.
-              `
+              content: prompts.system
             },
             {
               role: 'user',
@@ -163,41 +131,37 @@ function App() {
       ...prev,
       {
         sender: 'ai',
-        text: `🕑 Sending your "${strategy.name}" strategy to the vault…`,
+        text: `Mr. Andreson you chose to run "${strategy.name}"`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       },
     ]);
     
-    // 2️⃣ compute integer amount in smallest units
+    // 2️⃣ compute in smallest units and normalize token symbol
     const action = strategy.actions[0];
-    const decimals = TOKEN_DECIMALS[action.token] ?? 0;
+    const rawSymbol = action.token.toUpperCase();
+    const coinType = TOKEN_ALIASES[rawSymbol] ?? action.token;
+
+    const decimals = TOKEN_DECIMALS[coinType] ?? 0;
     const humanAmount = action.amount; // the user‐facing float
-    const intAmount = BigInt(
-      Math.round(humanAmount * 10 ** decimals)
-    );
+    const intAmount = BigInt( Math.round(humanAmount * 10 ** decimals) );
 
     // 3️⃣ call your backend
     try {
-      const resp = await executeStrategy(
-        action.token,
-        intAmount,
-        dryRunMode
-      );
+      const resp = await executeStrategy( coinType, intAmount, dryRun );
     
-    // 4️⃣ build the result text
-    let resultText: string;
-    if (resp.status === 'error') {
-      resultText = `❌ ${dryRun ? 'Simulation' : 'Execution'} failed: ${resp.message}`;
-    } else if (resp.mode === 'live') {
-      resultText = `✅ On-chain! Tx digest: ${resp.digest}`;
-    } else {
-      // dryRun case
-      resultText =
-        `🛠 Dry-run OK: ${resp.dryRunStatus}` +
-        `\nCreated: ${resp.created.map(o => o.id).join(', ')}`;
-    }
-  
-  
+      // 4️⃣ build the result text
+      let resultText: string;
+      if (resp.status === 'error') {
+        resultText = `❌ ${dryRun ? 'Simulation' : 'Execution'} failed: ${resp.message}`;
+      } else if (resp.mode === 'live') {
+        const txUrl = `https://suivision.xyz/txblock/${resp.digest}`;
+        resultText = ` ✅ Your actions have been recorded, Mr. Anderson. Irreversible. Immutable. On-chain.` + `\n${txUrl}`;
+      } else {
+        // dryRun case
+        resultText = `🛠 Dry-run OK: ${resp.dryRunStatus}` + `\nCreated: ${resp.created.map(o => o.id).join(', ')}`;
+      }
+    
+    
       // 3️⃣ show final status
       const resultMessage: ChatMessage = {
         sender: 'ai',
