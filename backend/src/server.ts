@@ -13,6 +13,7 @@ import { decodeSuiPrivateKey } from '@mysten/sui/cryptography';
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
 import { getFullnodeUrl, SuiClient } from '@mysten/sui/client';
 import { runStrategy } from './lib/runStrategy';
+import type { Action } from './lib/types';
 
 const app = express();
 app.use(cors());
@@ -38,6 +39,16 @@ app.post('/execute', async (req, res) => {
   logger.info(`📩 /execute — coinType: ${coinType}, amount: ${amount}, dryRun: ${dryRun}`);
 
   try {
+    // Build actions array for strategy
+    const actions: Action[] = [
+      {
+        protocol: 'SuiLend',
+        type: 'lend',
+        token: coinType || env.COIN_TYPE,
+        amount: BigInt(amount),
+      },
+    ];
+
     const result = await runStrategy({
       client,
       keypair,
@@ -46,6 +57,7 @@ app.post('/execute', async (req, res) => {
       gasBudgetAmount: 100_000_000n,
       safeMode: !dryRun,
       isDryRun: dryRun,
+      actions,
       env: {
         PACKAGE_ID: env.SUI_PACKAGE_ID,
         LENDING_MARKET_OBJ: env.LENDING_MARKET_OBJ,

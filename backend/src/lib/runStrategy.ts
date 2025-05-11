@@ -5,6 +5,7 @@ import { Transaction } from "@mysten/sui/transactions";
 import type { Action, EnvConfig } from "./types";
 import { depositAction } from "./actions/deposit";
 import { withdrawAction } from './actions/withdraw';
+import { refreshReservePrice } from "@suilend/sdk/_generated/suilend/lending-market/functions";
 
 import logger, { hexSnippet } from "../utils/logger";
 
@@ -51,6 +52,17 @@ export async function runStrategy(
 
   // Fetch all coins once
   const allCoins = await client.getAllCoins({ owner });
+  const balancesByType: Record<string, bigint> = {};
+  for (const coin of allCoins.data) {
+    const amount = BigInt(coin.balance);
+    balancesByType[coin.coinType] = (balancesByType[coin.coinType] || 0n) + amount;
+  }
+
+  let balanceLog = '💰 Current Wallet Balances:\n';
+  for (const [type, balance] of Object.entries(balancesByType)) {
+    balanceLog += `    • ${type}: ${balance} (raw)\n`;
+  }
+  logger.info(balanceLog.trim());
 
   // Find deposit coin
   const depositCoin = allCoins.data.find(
@@ -93,19 +105,39 @@ export async function runStrategy(
   for (const action of actions) {
     switch (action.type) {
       case 'lend':
-        await depositAction(tx, action, {
-          client,
-          owner,
-          coinFull,
-          gasCoinFull,
-          env,
-        });
-        break;
-      case 'withdraw':
-        await withdrawAction(tx, action, { client, owner, coinFull, gasCoinFull, env });
+        // deposit without refreshing price
+        await depositAction(tx, action, { client, owner, coinFull, gasCoinFull, env });
         break;
 
-      // future action handlers: withdraw, swap, borrow, etc.
+      case 'withdraw': {
+        // 1️⃣ Refresh on-chain PriceInfoObject
+        const clockArg = tx.object.clock();
+        const reserveIdx = action.reserveArrayIndex;
+        if (reserveIdx === undefined) {
+          throw new Error('Missing reserveArrayIndex for withdraw action');
+        }
+        await refreshReservePrice(tx, action.token, {
+          lendingMarket: env.LENDING_MARKET_OBJ,
+          reserveArrayIndex: reserveIdx,
+          clock: clockArg,
+          priceInfo: action.priceInfo!,
+        });
+        // 2️⃣ Perform withdraw
+        await withdrawAction(tx, action, { client, owner, coinFull, gasCoinFull, env });
+        break;
+      }
+
+      case 'refreshReservePrice': {
+        const clockArg = tx.object.clock();
+        await refreshReservePrice(tx, action.token, {
+          lendingMarket: env.LENDING_MARKET_OBJ,
+          reserveArrayIndex: action.reserveArrayIndex,
+          clock: clockArg,
+          priceInfo: action.priceInfo!,
+        });
+        break;
+      }
+
       default:
         throw new Error(`Unsupported action type: ${action.type}`);
     }
@@ -114,10 +146,9 @@ export async function runStrategy(
   // === 🧪 Dry Run Mode (not sent onchain) ===
   if (isDryRun) {
     logger.info('🧪 Running dry-run simulation...');
-    const kindBytes = await tx.build({ client, onlyTransactionKind: true, });
+    const kindBytes = await tx.build({ client, onlyTransactionKind: true });
     logger.debug(`🔧 Built tx bytes: ${hexSnippet(kindBytes)}`);
 
-    // 1) Dev-Inspect using built bytes
     let inspectRes: DevInspectResults | undefined;
     try {
       inspectRes = await client.devInspectTransactionBlock({
@@ -130,37 +161,36 @@ export async function runStrategy(
       return { mode: 'dryRun', inspect: inspectRes, dryRun: {} as DryRunTransactionBlockResponse };
     }
 
-    logger.debug(`🔍 Dev-Inspect Status: ${JSON.stringify(
-        inspectRes.error ? { error: inspectRes.error } : { status: inspectRes.effects?.status }, null, 2)}`
+    logger.debug(
+      `🔍 Dev-Inspect Status: ${JSON.stringify(
+        inspectRes.error ? { error: inspectRes.error } : { status: inspectRes.effects?.status }, null, 2
+      )}`
     );
-  
+
     if (inspectRes.error || inspectRes.effects.status.status !== 'success') {
-      logger.warn(`⚠️ Dev-Inspect failed: ${JSON.stringify(
-          { error: inspectRes.error, status: inspectRes.effects.status }, null, 2)}`
+      logger.warn(
+        `⚠️ Dev-Inspect failed: ${JSON.stringify(
+          { error: inspectRes.error, status: inspectRes.effects.status }, null, 2
+        )}`
       );
       return { mode: 'dryRun', inspect: inspectRes, dryRun: {} as DryRunTransactionBlockResponse };
     }
-    const ptbJson = await tx.toJSON();
-    logger.debug(`🔧 PTB JSON: ${ptbJson}`);
 
-    // 2) Dry-Run execution using same bytes
     const fullBytes = await tx.build({ client });
     let dryRunRes: DryRunTransactionBlockResponse;
     try {
-      dryRunRes = await client.dryRunTransactionBlock({ 
-        transactionBlock: fullBytes,});      
+      dryRunRes = await client.dryRunTransactionBlock({ transactionBlock: fullBytes });
     } catch (e: any) {
       logger.error(`❌ Dry-Run threw exception: ${e.stack ?? e}`);
       return { mode: 'dryRun', inspect: inspectRes, dryRun: {} as DryRunTransactionBlockResponse };
     }
 
-    // Log Dry-Run status and object changes
-    logger.info(`🛠 Dry-Run Status: ${JSON.stringify( dryRunRes.effects.status, null, 2 )}`);
-    logger.debug(`🛠 Dry-Run Created Objects: ${JSON.stringify( dryRunRes.effects.created, null, 2 )}`);
-    logger.debug(`🛠 Dry-Run Mutated Objects: ${JSON.stringify( dryRunRes.effects.mutated, null, 2 )}`);
+    logger.info(`🛠 Dry-Run Status: ${JSON.stringify(dryRunRes.effects.status, null, 2)}`);
+    logger.debug(`🛠 Dry-Run Created Objects: ${JSON.stringify(dryRunRes.effects.created, null, 2)}`);
+    logger.debug(`🛠 Dry-Run Mutated Objects: ${JSON.stringify(dryRunRes.effects.mutated, null, 2)}`);
 
     if (dryRunRes.effects.status.status !== 'success') {
-      logger.warn(`⚠️ Dry-Run failed: ${JSON.stringify( { status: dryRunRes.effects.status }, null, 2 )}`);
+      logger.warn(`⚠️ Dry-Run failed: ${JSON.stringify({ status: dryRunRes.effects.status }, null, 2)}`);
     }
 
     return { mode: 'dryRun', inspect: inspectRes, dryRun: dryRunRes };
@@ -169,29 +199,13 @@ export async function runStrategy(
   // === 💥 Live Execution Path ===
   logger.info('🚀 Running LIVE...');
   const fullBytes = await tx.build({ client });
-
-  // 1) Execute on-chain
   let result;
   if (safeMode) {
     const { signature, bytes } = await keypair.signTransaction(fullBytes);
-    result = await client.executeTransactionBlock({
-      transactionBlock: bytes,
-      signature,
-      options: { showEffects: true, showEvents: true },
-    });
+    result = await client.executeTransactionBlock({ transactionBlock: bytes, signature, options: { showEffects: true, showEvents: true } });
   } else {
-    result = await client.signAndExecuteTransaction({
-      signer: keypair,
-      transaction: fullBytes,
-      options: { showEffects: true, showEvents: true },
-    });
+    result = await client.signAndExecuteTransaction({ signer: keypair, transaction: fullBytes, options: { showEffects: true, showEvents: true } });
   }
-
-  // 2) Optionally wait for finality
-  await client.waitForTransaction({
-    digest: result.digest,
-    options: { showEffects: true },
-  });
-
+  await client.waitForTransaction({ digest: result.digest, options: { showEffects: true } });
   return result;
 }

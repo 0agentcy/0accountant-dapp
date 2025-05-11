@@ -21,6 +21,7 @@
   "dependencies": {
     "@mysten/bcs": "^1.2.1",
     "@mysten/sui": "^1.28.1",
+    "@pythnetwork/pyth-sui-js": "^2.1.0",
     "@suilend/frontend-sui": "^0.2.56",
     "@suilend/sdk": "^1.1.50",
     "aftermath-ts-sdk": "^1.2.66",
