@@ -2,7 +2,7 @@ import { SuiClient, SuiObjectResponse } from "@mysten/sui/client";
 
 export type Action =
   | { protocol: string; type: 'lend';    token: string; amount: bigint; obligationCapId?: string; durationMinutes?: number; }
-  | { protocol: string; type: 'withdraw'; token: string; amount: bigint; obligationCapId?: string; durationMinutes?: number;
+  | { protocol: string; type: 'withdraw'; token: string; amount: bigint; obligationCapId: string; durationMinutes?: number;
       reserveArrayIndex: bigint;    // which slot in LendingMarket::reserves
       priceInfo: string;            // the PriceInfoObject ID you got from fetchReserves
     }
@@ -13,7 +13,7 @@ export type Action =
       type: 'refreshReservePrice';
       token: string;
       reserveArrayIndex: bigint;
-      priceInfo?: string;            // always pass an existing PriceInfoObject here
+      priceInfo?: string;
     };
   
 export type EnvConfig = {

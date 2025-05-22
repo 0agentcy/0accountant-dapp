@@ -45,7 +45,7 @@ async function main() {
   const suiClient = new SuiClient({ url: getFullnodeUrl('mainnet') });
 
   // Transaction parameters
-  const depositAmount = 1_000_000_000n;
+  const depositAmount = 500_000_000n;
   const gasBudgetAmount = 100_000_000n;
 
   logger.info(`⚙️ Executing strategy with:
@@ -84,51 +84,21 @@ async function main() {
     let obligationCapId: string;
 
     if (isDryRun) {
-      const dry = await runStrategy({
-        ...commonOpts,
-        actions: [lendAction],
-        isDryRun: true,
-      });
-
-      // 1️⃣ Make sure the dry‐run returned effects
-      if (!dry.dryRun.effects) {
-        throw new Error('Dry run did not return any effects');
-      }
-
-      // 2️⃣ Make sure at least one object was created
-      const dryCreated = dry.dryRun.effects.created;
-      if (!dryCreated || dryCreated.length === 0) {
-        throw new Error('Dry run effects.created was empty');
-      }
-
-      // 3️⃣ Grab the obligationCapId
-      obligationCapId = dryCreated[0].reference.objectId;
-
+      const dry = await runStrategy({ ...commonOpts, actions: [lendAction], isDryRun: true });
+      if (!dry.dryRun.effects?.created?.length) throw new Error('Dry-run created nothing');
+      obligationCapId = dry.dryRun.effects.created[0].reference.objectId;
     } else {
-      const live = await runStrategy({
-        ...commonOpts,
-        actions: [lendAction],
-        isDryRun: false,
+      const live = await runStrategy({ ...commonOpts, actions: [lendAction], isDryRun: false });
+      if (!live?.effects?.created?.length) throw new Error('Live run created nothing');
+      obligationCapId = live.effects.created[0].reference.objectId;
+
+      // —— WAIT FOR ON-CHAIN FINALITY! ——
+      await suiClient.waitForTransaction({
+        digest: live.digest,
+        options: { showEffects: true },
       });
-      if (!live) {
-        throw new Error('Expected a TransactionBlockResponse on live path');
-      }
-
-      // 1️⃣ Make sure live returned effects
-      if (!live.effects) {
-        throw new Error('Live run did not return any effects');
-      }
-
-      // 2️⃣ Make sure at least one object was created
-      const liveCreated = live.effects.created;
-      if (!liveCreated || liveCreated.length === 0) {
-        throw new Error('Live effects.created was empty');
-      }
-
-      // 3️⃣ Grab the obligationCapId
-      obligationCapId = liveCreated[0].reference.objectId;
+      logger.info(`✅ Lend settled on-chain: ${live.digest}`);
     }
-
     logger.info(`🔒 obligationCapId = ${obligationCapId}`);
 
     // ➡️ 1) fetch the on-chain reserve list (with their priceInfo IDs)
@@ -137,7 +107,6 @@ async function main() {
       LENDING_MARKET_OBJ,
       LENDING_MARKET_TYPE,
     });
-    const reservesCount = reserves.length;
 
     const refreshActions: Action[] = reserves.map((reserve, i) => ({
       protocol: 'SuiLend',
@@ -151,16 +120,16 @@ async function main() {
       await runStrategy({
         ...commonOpts,
         actions: refreshActions,
-        isDryRun: true, // literal true
+        isDryRun: true,    // literal
       });
     } else {
       await runStrategy({
         ...commonOpts,
         actions: refreshActions,
-        isDryRun: false, // literal false
+        isDryRun: false,   // literal
       });
     }
-    logger.info(`🔄 Refreshed ${reservesCount} reserve priceInfos`);
+    logger.info(`🔄 Refreshed ${refreshActions.length} reserve priceInfos`);
 
     // Schedule withdraw after duration
     const minutes = parseInt(argv.duration, 10);
@@ -173,23 +142,11 @@ async function main() {
         token: COIN_TYPE,
         amount: depositAmount,
         obligationCapId,
-        reserveArrayIndex: BigInt(0), // replace with actual reserve idx
-        priceInfo: '',                // replace with actual priceInfo ID
+        reserveArrayIndex: BigInt(0),
+        priceInfo: reserves[0].priceInfo,
       };
 
-      if (isDryRun) {
-        await runStrategy({
-          ...commonOpts,
-          actions: [withdrawAction],
-          isDryRun: true,
-        });
-      } else {
-        await runStrategy({
-          ...commonOpts,
-          actions: [withdrawAction],
-          isDryRun: false,
-        });
-      }
+      await runStrategy({ ...commonOpts, actions: [withdrawAction], isDryRun: false });
       logger.info('✅ Withdraw TX submitted');
     }, minutes * 60_000);
 
